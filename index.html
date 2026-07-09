@@ -650,16 +650,27 @@ function updateHourlyDisplay() {
 function saveGlobal() {
   store.salaryType = salaryTypeEl.value;
   store.salaryValue = salaryInputEl.value;
-  store.vacDays = vacDaysEl.value;
-  store.vacMins = vacMinsEl.value;
   saveData(store); // localStorage에 자동 저장
 }
 
 function loadGlobal() {
   if (store.salaryType) salaryTypeEl.value = store.salaryType;
   if (store.salaryValue !== undefined) salaryInputEl.value = store.salaryValue;
-  if (store.vacDays !== undefined) vacDaysEl.value = store.vacDays;
-  if (store.vacMins !== undefined) vacMinsEl.value = store.vacMins;
+}
+
+// 연차 정보는 해당 달(월)에 귀속 — 월별로 저장/로드
+function saveVacation() {
+  if (!store.vacByMonth) store.vacByMonth = {};
+  const key = getMonthKey(viewYear, viewMonth);
+  store.vacByMonth[key] = { days: vacDaysEl.value, mins: vacMinsEl.value };
+  saveData(store);
+}
+
+function loadVacation() {
+  const key = getMonthKey(viewYear, viewMonth);
+  const rec = (store.vacByMonth && store.vacByMonth[key]) || null;
+  vacDaysEl.value = (rec && rec.days !== undefined) ? rec.days : '';
+  vacMinsEl.value = (rec && rec.mins !== undefined) ? rec.mins : '';
 }
 
 function saveDayRecord(dayKey, inVal, outVal, breakVal) {
@@ -1016,12 +1027,12 @@ function computeAndRender() {
 }
 
 // ── 숫자 입력 포맷 ────────────────────────────────────────────────────────────
-function numericInputHandler(el, allowMax) {
+function numericInputHandler(el, allowMax, onSave) {
   el.addEventListener('input', function() {
     let v = this.value.replace(/[^0-9]/g,'');
     if (allowMax && parseInt(v) > allowMax) v = allowMax.toString();
     this.value = v;
-    saveGlobal();
+    (onSave || saveGlobal)();
     computeAndRender();
   });
 }
@@ -1030,6 +1041,7 @@ function numericInputHandler(el, allowMax) {
 document.getElementById('prevMonth').addEventListener('click', () => {
   viewMonth--;
   if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+  loadVacation();
   renderCalendar();
   computeAndRender();
 });
@@ -1037,6 +1049,7 @@ document.getElementById('prevMonth').addEventListener('click', () => {
 document.getElementById('nextMonth').addEventListener('click', () => {
   viewMonth++;
   if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+  loadVacation();
   renderCalendar();
   computeAndRender();
 });
@@ -1051,8 +1064,8 @@ salaryInputEl.addEventListener('input', function() {
   computeAndRender();
 });
 
-numericInputHandler(vacDaysEl);
-numericInputHandler(vacMinsEl, 450);
+numericInputHandler(vacDaysEl, null, saveVacation);
+numericInputHandler(vacMinsEl, 450, saveVacation);
 
 // ── 파일 저장/불러오기 ────────────────────────────────────────────────────────
 function setStatus(msg, type) {
@@ -1069,8 +1082,7 @@ document.getElementById('btnSave').addEventListener('click', () => {
   const snapshot = {
     salaryType: salaryTypeEl.value,
     salaryValue: salaryInputEl.value,
-    vacDays: vacDaysEl.value,
-    vacMins: vacMinsEl.value,
+    vacByMonth: store.vacByMonth || {},
     days: store.days || {}
   };
   const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
@@ -1098,12 +1110,15 @@ document.getElementById('fileInput').addEventListener('change', function() {
   reader.onload = function(e) {
     try {
       const data = JSON.parse(e.target.result);
-      store = { days: data.days || {} };
+      store = { days: data.days || {}, vacByMonth: data.vacByMonth || {} };
+      // 구버전 호환: 전역 연차만 있으면 현재 보기 달로 이관
+      if (!data.vacByMonth && (data.vacDays !== undefined || data.vacMins !== undefined)) {
+        store.vacByMonth[getMonthKey(viewYear, viewMonth)] = { days: data.vacDays || '', mins: data.vacMins || '' };
+      }
       if (data.salaryType) salaryTypeEl.value = data.salaryType;
       if (data.salaryValue !== undefined) salaryInputEl.value = data.salaryValue;
-      if (data.vacDays !== undefined) vacDaysEl.value = data.vacDays;
-      if (data.vacMins !== undefined) vacMinsEl.value = data.vacMins;
       saveData(store); // localStorage에도 반영
+      loadVacation();
       updateHourlyDisplay();
       renderCalendar();
       computeAndRender();
@@ -1129,12 +1144,15 @@ function loadFromFile(file) {
   reader.onload = function(e) {
     try {
       const data = JSON.parse(e.target.result);
-      store = { days: data.days || {} };
+      store = { days: data.days || {}, vacByMonth: data.vacByMonth || {} };
+      // 구버전 호환: 전역 연차만 있으면 현재 보기 달로 이관
+      if (!data.vacByMonth && (data.vacDays !== undefined || data.vacMins !== undefined)) {
+        store.vacByMonth[getMonthKey(viewYear, viewMonth)] = { days: data.vacDays || '', mins: data.vacMins || '' };
+      }
       if (data.salaryType) salaryTypeEl.value = data.salaryType;
       if (data.salaryValue !== undefined) salaryInputEl.value = data.salaryValue;
-      if (data.vacDays !== undefined) vacDaysEl.value = data.vacDays;
-      if (data.vacMins !== undefined) vacMinsEl.value = data.vacMins;
       saveData(store); // localStorage에도 반영
+      loadVacation();
       updateHourlyDisplay();
       renderCalendar();
       computeAndRender();
@@ -1184,7 +1202,16 @@ document.addEventListener('drop', (e) => {
 })();
 
 // ── 초기화 ────────────────────────────────────────────────────────────────────
+// 구버전(전역 연차) → 현재 달로 1회 이관
+if (!store.vacByMonth && (store.vacDays !== undefined || store.vacMins !== undefined)) {
+  store.vacByMonth = {};
+  store.vacByMonth[getMonthKey(viewYear, viewMonth)] = { days: store.vacDays || '', mins: store.vacMins || '' };
+  delete store.vacDays;
+  delete store.vacMins;
+  saveData(store);
+}
 loadGlobal();
+loadVacation();
 updateHourlyDisplay();
 renderCalendar();
 computeAndRender();
