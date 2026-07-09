@@ -872,14 +872,15 @@ function computeAndRender() {
     }
   }
 
-  // 추가근무 시간(분) = 실근무 - 기준근무 - 휴가사용시간
+  // 연차 사용 시간(분) 계산
   const vacD = parseInt((vacDaysEl.value||'0').replace(/,/g,'')) || 0;
   let vacM = parseInt((vacMinsEl.value||'0').replace(/,/g,'')) || 0;
   // 검증: 30분 단위, 최대 450분
   vacM = Math.min(Math.round(vacM / 30) * 30, 450);
   const vacTotalMins = vacD * 480 + vacM;
 
-  const overMins = actualMinutes - stdMinutes - vacTotalMins;
+  // 총 추가근무시간 = 실근무 - 기준근무 (연차는 여기서 빼지 않고 수당 계산 시 반영)
+  const totalOverMins = actualMinutes - stdMinutes;
 
   // 야간수당 계산 (22시 초과) + 휴일근로 시간
   let nightBonusMins = 0;
@@ -922,14 +923,26 @@ function computeAndRender() {
   if (salaryTypeEl.value === 'monthly') basePay = salaryVal;
   else basePay = salaryVal / 12;
 
-  // 추가수당
+  // ── 추가수당 계산 ────────────────────────────────────────────────
+  // 총 추가근무시간 중
+  //   · 연차 사용 시간만큼 → 시급 100%
+  //   · 나머지            → 시급 150%
+  // 연차 사용 시간은 야간(22시 이후) 근무보다 일반(주간) 추가근무에서 먼저 차감
+  const overMins = Math.max(0, totalOverMins);          // 총 추가근무(음수 방지)
+  const vacApplied = Math.min(vacTotalMins, overMins);  // 100% 적용분
+  const paidOverMins = overMins - vacApplied;           // 150% 적용분
+
+  // 야간 추가근무 보존: 연차를 일반(주간) 추가근무에서 먼저 차감
+  const dayOverMins = Math.max(0, overMins - nightBonusMins);
+  const vacFromDay = Math.min(vacApplied, dayOverMins);
+  const vacFromNight = vacApplied - vacFromDay;
+  const nightPaidMins = Math.max(0, nightBonusMins - vacFromNight); // 0.5배 야간수당 대상
+
   let extraPay = 0;
-  if (overMins > 0 && hourlyWage > 0) {
-    extraPay += (overMins / 60) * hourlyWage * 1.5;
-  }
-  // 야간 추가: (야간분/2) * 시급  → 0.5배 추가
-  if (nightBonusMins > 0 && hourlyWage > 0) {
-    extraPay += (nightBonusMins / 60 / 2) * hourlyWage;
+  if (hourlyWage > 0) {
+    extraPay += (vacApplied / 60) * hourlyWage * 1.0;    // 연차분 100%
+    extraPay += (paidOverMins / 60) * hourlyWage * 1.5;  // 나머지 150%
+    extraPay += (nightPaidMins / 60) * hourlyWage * 0.5; // 야간 추가 0.5배
   }
 
   const totalPay = basePay + extraPay;
@@ -937,11 +950,14 @@ function computeAndRender() {
   // 표시
   document.getElementById('stdHoursDisplay').textContent = stdMinutes > 0 ? minsToHHMM(stdMinutes) : '—';
   document.getElementById('actualHoursDisplay').textContent = actualMinutes > 0 ? minsToHHMM(actualMinutes) : '—';
-  document.getElementById('overHoursDisplay').textContent = overMins > 0 ? minsToHHMM(overMins) : (overMins < 0 ? '-'+minsToHHMM(-overMins) : '0시간');
+  document.getElementById('overHoursDisplay').textContent = totalOverMins > 0 ? minsToHHMM(totalOverMins) : (totalOverMins < 0 ? '-'+minsToHHMM(-totalOverMins) : '0시간');
 
   const overDetailEl = document.getElementById('overDetail');
   const specialMins = nightWorkMins + holidayWorkMins;
-  overDetailEl.textContent = specialMins > 0 ? '(야간·휴일 근로 ' + minsToHHMM(specialMins) + ' 포함)' : '';
+  const detailParts = [];
+  if (vacApplied > 0) detailParts.push('연차 ' + minsToHHMM(vacApplied) + ' 100%');
+  if (specialMins > 0) detailParts.push('야간·휴일 근로 ' + minsToHHMM(specialMins));
+  overDetailEl.textContent = detailParts.length ? '(' + detailParts.join(' · ') + ' 포함)' : '';
 
   if (totalPay > 0) {
     document.getElementById('totalSalaryDisplay').textContent = fmt(Math.round(totalPay)) + '원';
