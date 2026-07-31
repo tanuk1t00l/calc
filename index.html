@@ -934,26 +934,23 @@ function computeAndRender() {
   if (salaryTypeEl.value === 'monthly') basePay = salaryVal;
   else basePay = salaryVal / 12;
 
-  // ── 추가수당 계산 ────────────────────────────────────────────────
+  // ── 추가수당 계산 (엑셀 기준표와 동일한 로직) ────────────────────────
   // 총 추가근무시간 중
   //   · 연차 사용 시간만큼 → 시급 100%
   //   · 나머지            → 시급 150%
-  // 연차 사용 시간은 야간(22시 이후) 근무보다 일반(주간) 추가근무에서 먼저 차감
+  // 야간수당(22시~06시)은 실제로 그 시간에 근무했는지 여부로만 결정되며,
+  // 그 시간이 연차로 대체되어 100% 처리되었는지와는 무관하게 전액 가산합니다.
+  // (연차 차감분을 야간에서 먼저 빼던 이전 로직은 엑셀과 결과가 달라 제거했습니다)
   const overMins = Math.max(0, totalOverMins);          // 총 추가근무(음수 방지)
   const vacApplied = Math.min(vacTotalMins, overMins);  // 100% 적용분
   const paidOverMins = overMins - vacApplied;           // 150% 적용분
-
-  // 야간 추가근무 보존: 연차를 일반(주간) 추가근무에서 먼저 차감
-  const dayOverMins = Math.max(0, overMins - nightBonusMins);
-  const vacFromDay = Math.min(vacApplied, dayOverMins);
-  const vacFromNight = vacApplied - vacFromDay;
-  const nightPaidMins = Math.max(0, nightBonusMins - vacFromNight); // 0.5배 야간수당 대상
+  const nightPaidMins = nightBonusMins;                 // 0.5배 야간수당 대상(전액)
 
   let extraPay = 0;
   if (hourlyWage > 0) {
     extraPay += (vacApplied / 60) * hourlyWage * 1.0;    // 연차분 100%
     extraPay += (paidOverMins / 60) * hourlyWage * 1.5;  // 나머지 150%
-    extraPay += (nightPaidMins / 60) * hourlyWage * 0.5; // 야간 추가 0.5배
+    extraPay += (nightPaidMins / 60) * hourlyWage * 0.5; // 야간 추가 0.5배 (전액, 연차 무관)
   }
 
   const totalPay = basePay + extraPay;
