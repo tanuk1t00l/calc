@@ -969,7 +969,7 @@ function computeAndRender() {
 
   if (totalPay > 0) {
     document.getElementById('totalSalaryDisplay').textContent = fmt(Math.round(totalPay)) + '원';
-    document.getElementById('netSalaryDisplay').textContent = fmt(Math.round(totalPay * 0.83)) + '원';
+    document.getElementById('netSalaryDisplay').textContent = fmt(Math.round(totalPay * 0.84)) + '원';
     const extraEl = document.getElementById('extraNote');
     if (extraPay > 0) {
       extraEl.innerHTML = `(연장근무수당 <span class="extra-amt">${fmt(Math.round(extraPay))}원</span> 포함)`;
